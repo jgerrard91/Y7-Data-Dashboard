@@ -127,3 +127,37 @@ fig3 = px.scatter(
     trendline="ols", title="Attendance vs Core Academic Grade (English, Maths, Science)"
 )
 st.plotly_chart(fig3, use_container_width=True)
+
+st.divider()
+st.subheader("📋 Pupil Premium Grade Breakdown")
+
+# Separate PP and Non-PP
+pp_df = filtered_df[filtered_df['Pupil Premium Indicator'] == 'Y']
+
+tab1, tab2 = st.tabs(["Subject Summary (PP vs Non-PP)", "Individual PP Student Grades"])
+
+with tab1:
+    pp_summary = []
+    for s in subjects_info:
+        s_name = s['subject']
+        avg_col = s['avg_col']
+        
+        pp_grade = pd.to_numeric(df[df['Pupil Premium Indicator'] == 'Y'][avg_col], errors='coerce').mean()
+        non_pp_grade = pd.to_numeric(df[df['Pupil Premium Indicator'].isna()][avg_col], errors='coerce').mean()
+        
+        pp_summary.append({
+            'Subject': s_name,
+            'PP Mean Grade': round(pp_grade, 2),
+            'Non-PP Mean Grade': round(non_pp_grade, 2),
+            'Gap': round(pp_grade - non_pp_grade, 2)
+        })
+    
+    st.dataframe(pd.DataFrame(pp_summary), width='stretch')
+
+with tab2:
+    if len(pp_df) > 0:
+        # Show table of individual PP students and their key details
+        display_cols = ['Full Name', 'Reg Group', '% Attendance'] + [s['avg_col'] for s in subjects_info[:5]] # Core subjects
+        st.dataframe(pp_df[display_cols].dropna(subset=['Full Name']), width='stretch')
+    else:
+        st.info("No Pupil Premium students match the current sidebar filter selection.")
