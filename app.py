@@ -5,10 +5,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # 1. Page Configuration
-st.set_page_config(page_title="Year 7 Performance Dashboard", layout="wide")
+st.set_page_config(page_title="Year 7 Key Group Attainment Dashboard", layout="wide")
 
-st.title("🎓 Year 7 Academic Performance & Progress Dashboard")
-st.markdown("Filter student cohorts dynamically using the sidebar options.")
+st.title("🎓 Year 7 Key Group Attainment Dashboard")
+st.markdown("Filter key cohorts dynamically to explore academic attainment and equity gaps.")
 
 # 2. Load Data Function
 @st.cache_data
@@ -19,49 +19,7 @@ def load_data():
 
 df = load_data()
 
-# 3. Sidebar Filters
-st.sidebar.header("🔍 Cohort Filters")
-
-# Tutor Group Filter
-reg_groups = ['All'] + sorted([x for x in df['Reg Group'].dropna().unique()])
-selected_reg = st.sidebar.selectbox("Registration Group", reg_groups)
-
-# Pupil Premium Filter
-pp_options = ['All', 'Pupil Premium (Y)', 'Non-Pupil Premium (N)']
-selected_pp = st.sidebar.selectbox("Pupil Premium Status", pp_options)
-
-# SEN Filter
-sen_options = ['All', 'SEN Only', 'Non-SEN']
-selected_sen = st.sidebar.selectbox("SEN Status", sen_options)
-
-# Attendance Filter
-min_att, max_att = int(df['% Attendance'].min()), int(df['% Attendance'].max())
-att_range = st.sidebar.slider("Attendance Range (%)", min_att, max_att, (min_att, max_att))
-
-# 4. Filter Application
-filtered_df = df.copy()
-
-if selected_reg != 'All':
-    filtered_df = filtered_df[filtered_df['Reg Group'] == selected_reg]
-
-if selected_pp == 'Pupil Premium (Y)':
-    filtered_df = filtered_df[filtered_df['Pupil Premium Indicator'] == 'Y']
-elif selected_pp == 'Non-Pupil Premium (N)':
-    filtered_df = filtered_df[filtered_df['Pupil Premium Indicator'].isna()]
-
-if selected_sen == 'SEN Only':
-    filtered_df = filtered_df[filtered_df['SEN Status'].notna() & (filtered_df['SEN Status'] != 'N')]
-elif selected_sen == 'Non-SEN':
-    filtered_df = filtered_df[filtered_df['SEN Status'].isna() | (filtered_df['SEN Status'] == 'N')]
-
-filtered_df = filtered_df[(filtered_df['% Attendance'] >= att_range[0]) & (filtered_df['% Attendance'] <= att_range[1])]
-
-# 5. Top Key Metrics
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Selected Pupils", len(filtered_df))
-m2.metric("Mean Attendance", f"{filtered_df['% Attendance'].mean():.1f}%" if len(filtered_df) > 0 else "N/A")
-
-# 6. Subject Calculations
+# Subject Column Mapping
 subject_names = ['English', 'Maths', 'Science', 'Drama', 'Art', 'Computing', 'DT', 'MFL', 'Geography', 'History', 'Music', 'PE', 'RE']
 cols = list(df.columns)
 
@@ -75,93 +33,132 @@ for idx, s in enumerate(subject_names):
         'avg_col': cols[avg_col]
     })
 
-summary_data = []
-for s in subjects_info:
-    name = s['subject']
-    target = pd.to_numeric(filtered_df[s['target_col']], errors='coerce')
-    avg = pd.to_numeric(filtered_df[s['avg_col']], errors='coerce')
-    diff = avg - target
-    
-    summary_data.append({
-        'Subject': name,
-        'Mean Target': round(target.mean(), 2) if len(target.dropna()) > 0 else 0,
-        'Mean Attained': round(avg.mean(), 2) if len(avg.dropna()) > 0 else 0,
-        'Value Added': round(diff.mean(), 2) if len(diff.dropna()) > 0 else 0,
-        '% Meeting Target': round((diff >= 0).mean() * 100, 1) if len(diff.dropna()) > 0 else 0
-    })
+# 3. Sidebar Filters
+st.sidebar.header("🔍 Controls & Filters")
 
-summary_df = pd.DataFrame(summary_data)
+metric_view = st.sidebar.radio("View Metric", ["Mean Attained Grade", "% Meeting/Exceeding Target"])
 
-overall_va = summary_df['Value Added'].mean()
-m3.metric("Average Value Added", f"{overall_va:+.2f} Grades" if len(filtered_df) > 0 else "N/A")
-m4.metric("Avg Target Met", f"{summary_df['% Meeting Target'].mean():.1f}%" if len(filtered_df) > 0 else "N/A")
+cohort_focus = st.sidebar.selectbox("Cohort Focus", ["All Cohorts", "Vulnerable Cohorts (PP & SEN)", "Gender (Boys vs Girls)"])
 
-st.divider()
+selected_reg = st.sidebar.selectbox("Registration Group", ['All'] + sorted([x for x in df['Reg Group'].dropna().unique()]))
 
-# 7. Charts Row
-col_a, col_b = st.columns(2)
+# Filter application
+filtered_df = df.copy()
+if selected_reg != 'All':
+    filtered_df = filtered_df[filtered_df['Reg Group'] == selected_reg]
 
-with col_a:
-    fig1 = px.bar(
-        summary_df, x='Subject', y=['Mean Target', 'Mean Attained'],
-        barmode='group', title="Target vs Attained Grade by Subject",
-        color_discrete_map={'Mean Target': '#3366CC', 'Mean Attained': '#109618'}
-    )
-    st.plotly_chart(fig1, width='stretch')
+# 4. Cohort Calculations
+cohorts = {
+    "All Pupils": filtered_df,
+    "Boys": filtered_df[filtered_df['Sex'] == 'M'],
+    "Girls": filtered_df[filtered_df['Sex'] == 'F'],
+    "Pupil Premium": filtered_df[filtered_df['Pupil Premium Indicator'] == 'Y'],
+    "Not Pupil Premium": filtered_df[filtered_df['Pupil Premium Indicator'].isna()],
+    "Pupils with SEN": filtered_df[filtered_df['SEN Status'].notna() & (filtered_df['SEN Status'] != 'N')],
+    "Pupils without SEN": filtered_df[filtered_df['SEN Status'].isna() | (filtered_df['SEN Status'] == 'N')]
+}
 
-with col_b:
-    fig2 = px.bar(
-        summary_df.sort_values(by='% Meeting Target'),
-        y='Subject', x='% Meeting Target', orientation='h',
-        title="% Students Meeting/Exceeding Target",
-        color='% Meeting Target', color_continuous_scale='RdYlGn'
-    )
-    st.plotly_chart(fig2, width='stretch')
-
-# 8. Interactive Heatmap Section
-st.divider()
-st.subheader("🔥 Student vs Subject Performance Heatmap")
-st.markdown("Easily spot subject performance patterns across pupils. Filter by Pupil Premium in the sidebar to isolate PP students.")
-
-if len(filtered_df) > 0:
-    # Prepare heatmap data matrix
-    heatmap_df = filtered_df[['Full Name']].copy()
-    for s in subjects_info:
-        heatmap_df[s['subject']] = pd.to_numeric(filtered_df[s['avg_col']], errors='coerce')
-    
-    heatmap_df = heatmap_df.dropna(subset=['Full Name']).sort_values('Full Name').set_index('Full Name')
-    
-    # Calculate responsive chart height based on filtered students (minimum 400px)
-    dynamic_height = max(400, len(heatmap_df) * 22)
-    
-    fig_heatmap = px.imshow(
-        heatmap_df,
-        labels=dict(x="Subject", y="Student Name", color="Grade"),
-        x=heatmap_df.columns,
-        y=heatmap_df.index,
-        color_continuous_scale="RdYlGn",
-        aspect="auto",
-        title="Attained Grades Matrix (Red = Low Grade, Green = High Grade)"
-    )
-    
-    fig_heatmap.update_layout(
-        height=dynamic_height,
-        xaxis_title="Subject",
-        yaxis_title="Student Name",
-        margin=dict(l=150, r=20, t=50, b=50)
-    )
-    
-    st.plotly_chart(fig_heatmap, width='stretch')
+if cohort_focus == "Vulnerable Cohorts (PP & SEN)":
+    selected_cohort_keys = ["All Pupils", "Pupil Premium", "Not Pupil Premium", "Pupils with SEN", "Pupils without SEN"]
+elif cohort_focus == "Gender (Boys vs Girls)":
+    selected_cohort_keys = ["All Pupils", "Boys", "Girls"]
 else:
-    st.info("No students match the current filter selection.")
+    selected_cohort_keys = list(cohorts.keys())
 
-# 9. Scatter Plot Row
+# Build Attainment Matrix
+matrix_data = []
+for c_name in selected_cohort_keys:
+    c_df = cohorts[c_name]
+    row = {'Cohort Group': c_name}
+    for s_info in subjects_info:
+        s_name = s_info['subject']
+        target = pd.to_numeric(c_df[s_info['target_col']], errors='coerce')
+        avg = pd.to_numeric(c_df[s_info['avg_col']], errors='coerce')
+        
+        if metric_view == "Mean Attained Grade":
+            val = avg.mean()
+            row[s_name] = round(val, 2) if pd.notna(val) else 0.0
+        else:
+            diff = avg - target
+            pct = (diff >= 0).mean() * 100
+            row[s_name] = round(pct, 1) if pd.notna(pct) else 0.0
+            
+    matrix_data.append(row)
+
+matrix_df = pd.DataFrame(matrix_data).set_index('Cohort Group')
+
+# 5. Dashboard Summary Cards
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Selected Cohort Count", len(filtered_df))
+m2.metric("Mean Attendance", f"{filtered_df['% Attendance'].mean():.1f}%" if len(filtered_df) > 0 else "N/A")
+
+all_pupils_avg = matrix_df.loc['All Pupils'].mean() if 'All Pupils' in matrix_df.index else 0
+if metric_view == "Mean Attained Grade":
+    m3.metric("Overall Cohort Grade", f"{all_pupils_avg:.2f}")
+    pp_gap = matrix_df.loc['Pupil Premium'].mean() - matrix_df.loc['Not Pupil Premium'].mean() if 'Pupil Premium' in matrix_df.index else 0
+    m4.metric("PP vs Non-PP Gap", f"{pp_gap:+.2f} Grades")
+else:
+    m3.metric("Avg Target Met %", f"{all_pupils_avg:.1f}%")
+    pp_gap = matrix_df.loc['Pupil Premium'].mean() - matrix_df.loc['Not Pupil Premium'].mean() if 'Pupil Premium' in matrix_df.index else 0
+    m4.metric("PP vs Non-PP Gap", f"{pp_gap:+.1f}% Points")
+
 st.divider()
-filtered_df['Core_Avg_Grade'] = filtered_df[[cols[17], cols[29], cols[41]]].apply(pd.to_numeric, errors='coerce').mean(axis=1)
 
-fig3 = px.scatter(
-    filtered_df, x='% Attendance', y='Core_Avg_Grade',
-    color='Reg Group', hover_name='Full Name',
-    trendline="ols", title="Attendance vs Core Academic Grade (English, Maths, Science)"
+# 6. Heatmap View using School Palette (#542A3A Burgundy -> #A3935D Gold -> #4A777A Teal)
+st.subheader("🔥 Key Group Attainment Heatmap Matrix")
+st.caption(f"Displaying **{metric_view}** across selected key groups.")
+
+school_colorscale = [
+    [0.0, "#542A3A"],  # Burgundy (Low)
+    [0.5, "#A3935D"],  # Gold (Mid)
+    [1.0, "#4A777A"]   # Teal (High)
+]
+
+fig_heatmap = px.imshow(
+    matrix_df,
+    labels=dict(x="Subject", y="Cohort Group", color="Value"),
+    x=matrix_df.columns,
+    y=matrix_df.index,
+    color_continuous_scale=school_colorscale,
+    aspect="auto",
+    text_auto=True
 )
-st.plotly_chart(fig3, width='stretch')
+
+fig_heatmap.update_layout(
+    height=400,
+    margin=dict(l=150, r=20, t=30, b=40),
+    xaxis_title="",
+    yaxis_title=""
+)
+
+st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# 7. Vulnerable Groups Gap Matrix Table
+st.divider()
+st.subheader("⚖️ Equity Gap Analysis Matrix")
+st.caption("Difference between vulnerable cohorts and peer baselines across key subjects (negative values indicate attainment gaps).")
+
+gap_subjects = ['English', 'Maths', 'Science', 'Geography', 'History', 'MFL']
+
+def calculate_gap(vulnerable_key, peer_key):
+    gap_row = {}
+    v_df = cohorts[vulnerable_key]
+    p_df = cohorts[peer_key]
+    
+    for s in gap_subjects:
+        s_info = next(item for item in subjects_info if item['subject'] == s)
+        v_val = pd.to_numeric(v_df[s_info['avg_col']], errors='coerce').mean()
+        p_val = pd.to_numeric(p_df[s_info['avg_col']], errors='coerce').mean()
+        gap_row[s] = round(v_val - p_val, 2)
+    
+    gap_row['Average Gap'] = round(np.mean(list(gap_row.values())), 2)
+    return gap_row
+
+gap_data = {
+    "Pupil Premium Gap (PP vs Non-PP)": calculate_gap("Pupil Premium", "Not Pupil Premium"),
+    "SEND Opportunity Gap (SEN vs Non-SEN)": calculate_gap("Pupils with SEN", "Pupils without SEN"),
+    "Gender Gap (Boys vs Girls)": calculate_gap("Boys", "Girls")
+}
+
+gap_df = pd.DataFrame(gap_data).T
+st.dataframe(gap_df.style.background_gradient(cmap='RdYlGn', axis=None, vmin=-0.8, vmax=0.2), use_container_width=True)
